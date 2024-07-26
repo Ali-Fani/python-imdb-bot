@@ -1,0 +1,36 @@
+[project]
+name = "python-imdb-bot"
+version = "0.1.0"
+description = "Default template for PDM package"
+authors = [
+    {name = "Ali Fani", email = "alifani1377@gmail.com"},
+]
+dependencies = [
+    "reload>=0.9",
+    "requests>=2.32.3",
+    "types-requests>=2.32.0.20240712",
+    "pydantic>=2.8.2",
+    "aiohttp>=3.9.5",
+    "supabase>=2.6.0",
+    "pydantic-settings>=2.3.4",
+    "discord-components>=0.0.0.1",
+    "discord-py>=2.4.0",
+]
+requires-python = "==3.12.*"
+readme = "README.md"
+license = {text = "MIT"}
+
+
+[tool.pdm]
+distribution = false
+
+[tool.pdm.scripts]
+dev = "python -m src.python_imdb_bot.rewrite"
+[tool.pdm.dev-dependencies]
+dev = [
+    "ruff>=0.5.5",
+]
+
+[tool.ruff]
+
+line-length = 88
