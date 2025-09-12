@@ -71,6 +71,8 @@ The bot automatically validates database schema on startup. If required tables a
 
 ## Installation
 
+### Local Development
+
 1. Clone the repository
 2. Install dependencies:
    ```bash
@@ -86,6 +88,58 @@ The bot automatically validates database schema on startup. If required tables a
    pdm run dev
    ```
 
+### Docker Deployment
+
+```bash
+# Build the image
+docker build -t python-imdb-bot .
+
+# Run with environment variables
+docker run -e DISCORD_TOKEN=your_token \
+           -e SUPABASE_URL=your_url \
+           -e SUPABASE_KEY=your_key \
+           -e OMDB_API_KEY=your_omdb_key \
+           -e TMDB_API_KEY=your_tmdb_key \
+           python-imdb-bot
+```
+
+### Coolify Deployment
+
+If deploying with Coolify, you may encounter `.env` file conflicts. Here's how to fix it:
+
+**Option 1: Remove .env from repository**
+```bash
+# Remove .env from git tracking
+git rm --cached .env
+
+# Add .env to .gitignore (if not already there)
+echo ".env" >> .gitignore
+```
+
+**Option 2: Use .env.example as template**
+```bash
+# Copy example file
+cp example.env .env
+
+# Fill in your values
+# DISCORD_TOKEN=your_token
+# SUPABASE_URL=your_url
+# etc.
+```
+
+**Option 3: Configure environment variables in Coolify dashboard**
+- Go to your Coolify application settings
+- Set environment variables directly in the UI instead of using .env file
+- Remove the .env file from your repository
+
+**Coolify Environment Variables to Set:**
+- `DISCORD_TOKEN`
+- `SUPABASE_URL`
+- `SUPABASE_KEY`
+- `OMDB_API_KEY`
+- `TMDB_API_KEY` (optional, for trailers)
+- `CHANNEL_ID`
+
 ## Environment Variables
 
 - `SUPABASE_URL`: Your Supabase project URL
@@ -93,3 +147,20 @@ The bot automatically validates database schema on startup. If required tables a
 - `DISCORD_TOKEN`: Discord bot token
 - `OMDB_API_KEY`: OMDB API key
 - `CHANNEL_ID`: Default Discord channel ID (can be overridden per guild)
+
+
+
+# Discord Bot Configuration
+DISCORD_TOKEN=your_discord_bot_token_here
+
+# Supabase Database Configuration
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_KEY=your_supabase_anon_key_here
+
+# Movie Database APIs
+OMDB_API_KEY=your_omdb_api_key_here
+TMDB_API_KEY=your_tmdb_api_key_here
+
+# Bot Configuration
+CHANNEL_ID=your_default_channel_id_here
+LOG_LEVEL=INFO

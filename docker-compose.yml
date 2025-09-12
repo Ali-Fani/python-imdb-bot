@@ -9,7 +9,9 @@ services:
     container_name: python-imdb-bot
     restart: unless-stopped
 
-    # Environment variables
+    # Environment variables from .env file
+    env_file:
+      - .env
 
     environment:
       - LOG_LEVEL=INFO
