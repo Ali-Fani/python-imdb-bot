@@ -1,8 +1,8 @@
 """ This module contains the data models for the IMDb bot. """
 from typing import List, Optional, Literal
 from pydantic import BaseModel, HttpUrl
-
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from dotenv import load_dotenv
 
 
 class Rating(BaseModel):
@@ -79,7 +79,7 @@ class Media(BaseModel):
     totalSeasons: Optional[str] = None
 
 
-class Settings(BaseSettings):
+class Settings:
     """
     Represents the settings for the IMDb bot.
 
@@ -93,19 +93,22 @@ class Settings(BaseSettings):
         LOG_FILE (str, optional): The file path for the log file. Defaults to "imdb_bot.log".
         LOG_FORMAT (str, optional): The log format for the log messages.
           Defaults to "%(asctime)s - %(name)s - %(levelname)s - %(message)s".
-        model_config (SettingsConfigDict): The configuration dictionary for the settings.
 
     """
 
-    DISCORD_TOKEN: str
-    OMDB_API_KEY: str
-    SUPABASE_KEY: str
-    SUPABASE_URL: str
-    CHANNEL_ID: int
-    LOG_LEVEL: str = "INFO"
-    LOG_FILE: str = "imdb_bot.log"
-    LOG_FORMAT: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    def __init__(self):
+        # Load environment variables from .env file
+        load_dotenv()
+
+        self.DISCORD_TOKEN = os.getenv('DISCORD_TOKEN', '')
+        self.OMDB_API_KEY = os.getenv('OMDB_API_KEY', '')
+        self.SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
+        self.SUPABASE_URL = os.getenv('SUPABASE_URL', '')
+        self.TMDB_API_KEY = os.getenv('TMDB_API_KEY', '')
+        self.CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
+        self.LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+        self.LOG_FILE = os.getenv('LOG_FILE', '/app/logs/bot.log')
+        self.LOG_FORMAT = os.getenv('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 class URLInfo(BaseModel):
     IMDB_URI: str
