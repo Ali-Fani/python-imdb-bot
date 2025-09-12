@@ -6,13 +6,18 @@
 # ================================
 # Builder Stage - Dependencies
 # ================================
-FROM ghcr.io/astral-sh/uv:latest AS builder
+FROM python:3.12-slim AS builder
 
-# Install system dependencies for building Python packages
+# Install uv and system dependencies for building Python packages
 RUN apt-get update && apt-get install -y \
+    curl \
     build-essential \
     pkg-config \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Install uv
+RUN pip install --no-cache-dir uv
 
 # Set up Python virtual environment
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy

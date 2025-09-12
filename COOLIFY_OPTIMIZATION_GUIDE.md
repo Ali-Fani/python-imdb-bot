@@ -104,6 +104,45 @@ LABEL coolify.service.type="background" \
 - **Layer Caching**: Copy dependency files first to leverage Docker layer caching
 - **Minimal Base Image**: Using `python:3.12-slim` for smaller footprint
 - **Build Args**: Support for dynamic versioning and metadata
+- **Parallel Builds**: Coolify supports parallel builds for faster deployment
+
+### Common Build Issues & Fixes
+
+#### apt-get Update Failures
+**Problem**: `apt-get update` fails in builder stage
+**Solution**: The Dockerfile has been updated to use `python:3.12-slim` base image which includes `apt-get`. If you still encounter issues:
+
+```dockerfile
+# Add retry logic or use alternative mirrors
+RUN apt-get update --fix-missing && apt-get install -y \
+    --no-install-recommends \
+    curl \
+    build-essential \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+```
+
+#### uv Installation Issues
+**Problem**: uv fails to install or sync dependencies
+**Solution**: The Dockerfile now installs uv via pip for reliability:
+
+```dockerfile
+FROM python:3.12-slim AS builder
+RUN apt-get update && apt-get install -y curl build-essential pkg-config
+RUN pip install --no-cache-dir uv
+```
+
+#### DNS/Network Issues
+**Problem**: Package downloads fail due to network issues
+**Solution**: Add DNS configuration or retry logic:
+```dockerfile
+# Add custom DNS
+RUN echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+
+# Or use retry logic
+RUN for i in {1..3}; do apt-get update && break || sleep 5; done
+```
 
 ## ⚙️ Coolify Configuration
 
