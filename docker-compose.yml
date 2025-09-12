@@ -20,7 +20,6 @@ services:
     # Volumes for logs and persistent data (if needed)
     volumes:
       - ./logs:/app/logs
-      - ./.env:/app/.env:ro  # Read-only for security
 
     # Health check
     healthcheck:
