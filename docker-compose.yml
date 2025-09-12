@@ -10,8 +10,7 @@ services:
     restart: unless-stopped
 
     # Environment variables
-    env_file:
-      - .env
+
     environment:
       - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
