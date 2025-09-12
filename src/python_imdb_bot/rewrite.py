@@ -102,7 +102,7 @@ async def on_message(
     if channel_id.data and message.channel.id == channel_id.data[0]["channel_id"]:
         url_info = await parse_message(message.content)
         if url_info:
-            exists_in_channel = find_existing_movie(message, url_info)
+            exists_in_channel = await find_existing_movie(message, url_info)
             if exists_in_channel.data:
                 # Movie already exists - inform user they can rate with reactions
                 already_exist_message = await message.channel.send(
@@ -114,10 +114,10 @@ async def on_message(
             else:
                 media_info = await get_imdb_info(url_info.IMDB_ID)
                 if media_info:
-                    embed = await make_embed(
+                    embed, view = await make_embed(
                         media_info, url_info.IMDB_URI, message.channel.id, message.guild.id
                     )
-                    sent_message = await message.channel.send(embed=embed)
+                    sent_message = await message.channel.send(embed=embed, view=view)
                     save_media_metadata(url_info, media_info, sent_message)
                     await message.delete()
 

@@ -7,7 +7,6 @@ import sys
 import logging
 import structlog
 from pathlib import Path
-from pythonjsonlogger import jsonlogger
 from loguru import logger
 from .models import Settings
 

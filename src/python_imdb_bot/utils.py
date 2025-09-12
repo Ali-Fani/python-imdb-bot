@@ -43,7 +43,7 @@ def get_imdb_id(url: str) -> tuple[str, str] | tuple[None, None]:
 
 async def get_imdb_info(imdb_id: str) -> Media | None:
     """
-    Retrieves IMDb information for a given IMDb ID.
+    Retrieves IMDb information for a given IMDb ID, including trailer URL if TMDB is configured.
 
     Args:
         imdb_id (str): The IMDb ID of the movie or TV show.
@@ -57,12 +57,66 @@ async def get_imdb_info(imdb_id: str) -> Media | None:
         url = f"http://www.omdbapi.com/?apikey={settings.OMDB_API_KEY}&i={imdb_id}"
         async with session.get(url) as response:
             data = await response.json()
-            media = Media(**data)
-            if media.Response is True:
+            if data.get('Response') == 'True':
+                media = Media(**data)
+
+                # Try to get trailer URL from TMDB if API key is configured
+                if hasattr(settings, 'TMDB_API_KEY') and settings.TMDB_API_KEY and settings.TMDB_API_KEY != 'your_tmdb_api_key_here':
+                    tmdb_id = await get_tmdb_id_from_imdb(imdb_id)
+                    if tmdb_id:
+                        trailer_url = await get_movie_trailer(tmdb_id)
+                        if trailer_url:
+                            media.trailer_url = trailer_url
+
                 return media
     return None
 
 
+async def get_tmdb_id_from_imdb(imdb_id: str) -> str | None:
+    """
+    Get TMDB ID from IMDb ID using TMDB's find endpoint.
+
+    Args:
+        imdb_id (str): The IMDb ID (e.g., 'tt0111161')
+
+    Returns:
+        str | None: TMDB movie ID or None if not found
+    """
+    async with aiohttp.ClientSession() as session:
+        url = f"https://api.themoviedb.org/3/find/{imdb_id}?api_key={settings.TMDB_API_KEY}&external_source=imdb_id"
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                movie_results = data.get('movie_results', [])
+                if movie_results:
+                    return str(movie_results[0]['id'])
+    return None
+
+
+async def get_movie_trailer(tmdb_id: str) -> str | None:
+    """
+    Get official trailer URL from TMDB videos endpoint.
+
+    Args:
+        tmdb_id (str): The TMDB movie ID
+
+    Returns:
+        str | None: YouTube trailer URL or None if not found
+    """
+    async with aiohttp.ClientSession() as session:
+        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos?api_key={settings.TMDB_API_KEY}"
+        async with session.get(url) as response:
+            if response.status == 200:
+                data = await response.json()
+                videos = data.get('results', [])
+
+                # Find official trailer
+                for video in videos:
+                    if video.get('type') == 'Trailer' and video.get('site') == 'YouTube':
+                        key = video.get('key')
+                        if key:
+                            return f"https://www.youtube.com/watch?v={key}"
+    return None
 async def parse_message(message: str) -> URLInfo | None:
     # Regular expression to match IMDB URL and ID
     imdb_pattern = r'(https?://(?:www\.)?imdb\.com/title/(tt\d+))'
@@ -84,7 +138,7 @@ async def parse_message(message: str) -> URLInfo | None:
     return URLInfo(IMDB_URI=imdb_url, IMDB_ID=imdb_id, USER_RATING=rating)
 
 
-async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int) -> discord.Embed:
+async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int) -> tuple[discord.Embed, discord.ui.View | None]:
     """
     Creates an embed message with the IMDb information and community ratings.
 
@@ -95,7 +149,7 @@ async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int
         guild_id (int): Discord guild ID for rating context
 
     Returns:
-        discord.Embed: An embed message with the IMDb information.
+        tuple[discord.Embed, discord.ui.View | None]: An embed message with the IMDb information and optional view with trailer button.
 
     """
     embed = discord.Embed(
@@ -121,7 +175,21 @@ async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int
     rating_stats = get_movie_rating_stats(media.imdbID, channel_id, guild_id)
     embed.add_field(name="Community Rating", value=format_rating_display(rating_stats["average"], rating_stats["count"]), inline=True)
 
-    return embed
+    # Create view with trailer button if TMDB is configured and trailer is available
+    view = None
+    if (hasattr(settings, 'TMDB_API_KEY') and
+        settings.TMDB_API_KEY and
+        settings.TMDB_API_KEY != 'your_tmdb_api_key_here' and
+        hasattr(media, 'trailer_url') and
+        media.trailer_url):
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(
+            label="🎬 Watch Trailer",
+            url=media.trailer_url,
+            style=discord.ButtonStyle.link
+        ))
+
+    return embed, view
 
 
 def update_media_user_rating(url_info):
@@ -137,25 +205,63 @@ def update_media_user_rating(url_info):
 
 
 def save_media_metadata(url_info, media_info, sent_message):
-    supabase.table("movies").insert(
-        {
-            "imdb_id": media_info.imdbID,
-            "message_id": sent_message.id,
-            "channel_id": sent_message.channel.id,
-            "guild_id": sent_message.guild.id,
-        }
-    ).execute()
+    movie_data = {
+        "imdb_id": media_info.imdbID,
+        "message_id": sent_message.id,
+        "channel_id": sent_message.channel.id,
+        "guild_id": sent_message.guild.id,
+    }
 
-def find_existing_movie(message, url_info):
-    return (
-                supabase.table("movies")
-                .select("*")
-                .eq("imdb_id", url_info.IMDB_ID)
-                .eq("channel_id", message.channel.id)
-                .eq("guild_id", message.guild.id if message.guild else None)
-                .limit(1)
-                .execute()
-            )
+    # Only add trailer_url if TMDB is configured and trailer exists
+    if (hasattr(settings, 'TMDB_API_KEY') and
+        settings.TMDB_API_KEY and
+        settings.TMDB_API_KEY != 'your_tmdb_api_key_here' and
+        hasattr(media_info, 'trailer_url') and
+        media_info.trailer_url):
+        movie_data["trailer_url"] = media_info.trailer_url
+
+    supabase.table("movies").insert(movie_data).execute()
+
+async def find_existing_movie(message, url_info):
+    """Check if movie exists and if the Discord message is still available"""
+    # First check database
+    result = (
+        supabase.table("movies")
+        .select("*")
+        .eq("imdb_id", url_info.IMDB_ID)
+        .eq("channel_id", message.channel.id)
+        .eq("guild_id", message.guild.id if message.guild else None)
+        .limit(1)
+        .execute()
+    )
+
+    if not result.data:
+        return result  # No movie found in database
+
+    movie_data = result.data[0]
+    message_id = movie_data.get("message_id")
+
+    if not message_id:
+        return result  # No message ID stored, treat as existing
+
+    # Try to fetch the Discord message
+    try:
+        await message.channel.fetch_message(message_id)
+        # Message still exists, so movie already exists
+        return result
+    except discord.NotFound:
+        # Message was deleted, clean up database and allow re-posting
+        try:
+            supabase.table("movies").delete().eq("message_id", message_id).execute()
+            supabase.table("ratings").delete().eq("imdb_id", url_info.IMDB_ID).eq("channel_id", message.channel.id).eq("guild_id", message.guild.id if message.guild else None).execute()
+        except Exception:
+            pass  # Ignore cleanup errors
+
+        # Return empty result to allow re-posting
+        return type('Result', (), {'data': None})()
+    except Exception:
+        # Other error (permissions, etc.), assume message exists to be safe
+        return result
 def validate_database_schema():
     """
     Validate that required database tables exist by attempting to query them.

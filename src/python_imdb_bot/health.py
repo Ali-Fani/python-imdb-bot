@@ -7,7 +7,8 @@ import asyncio
 import json
 from datetime import datetime
 from aiohttp import web
-from .utils import supabase, get_logger
+from .utils import supabase
+from .logging_config import get_logger
 
 log = get_logger("health")
 start_time = datetime.utcnow()
