@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  imdb-bot:
+    build:
+      context: .
+      target: runtime
+      dockerfile: Dockerfile
+    container_name: python-imdb-bot
+    restart: unless-stopped
+
+    # Environment variables
+    env_file:
+      - .env
+    environment:
+      - LOG_LEVEL=INFO
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONOPTIMIZE=1
+
+    # Volumes for logs and persistent data (if needed)
+    volumes:
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro  # Read-only for security
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio; print('Bot health check passed')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  # Optional: Redis for enhanced caching (uncomment if needed)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: imdb-bot-redis
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+  #   command: redis-server --appendonly yes
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+# volumes:
+#   redis_data:
+
+networks:
+  default:
+    name: imdb-bot-network

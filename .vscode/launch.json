@@ -1,0 +1,29 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Main",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/python_imdb_bot/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: python_imdb_bot Module",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.python_imdb_bot.rewrite",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
