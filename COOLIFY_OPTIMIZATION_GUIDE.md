@@ -170,6 +170,29 @@ rm uv.lock
 uv lock --upgrade
 ```
 
+#### Virtual Environment Python Not Found
+**Problem**: `ModuleNotFoundError: No module named 'discord'` or similar import errors
+**Solution**: Use virtual environment Python executable directly:
+
+```dockerfile
+# ✅ Correct approach in Dockerfile
+COPY --from=builder /opt/venv /opt/venv
+CMD ["/opt/venv/bin/python", "-m", "src.python_imdb_bot.rewrite"]
+```
+
+```bash
+# Update docker-entrypoint.sh to use virtual environment Python
+exec /opt/venv/bin/python -m src.python_imdb_bot.rewrite
+/opt/venv/bin/python --version
+/opt/venv/bin/python -c "import discord; print('Discord imported successfully')"
+```
+
+**Problem**: Virtual environment not activated properly
+**Solution**: Ensure PATH includes virtual environment bin directory:
+```dockerfile
+ENV PATH="/opt/venv/bin:$PATH"
+```
+
 ## ⚙️ Coolify Configuration
 
 ### 1. Service Setup

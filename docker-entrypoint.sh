@@ -11,7 +11,7 @@ check_supabase() {
     echo "🔍 Checking Supabase connection..."
 
     # Try to run a simple query to check if migrations have been applied
-    python -c "
+    uv run python -c "
 import sys
 import os
 sys.path.insert(0, '/app/src')
@@ -21,14 +21,14 @@ try:
     # Try a simple query to check if database is accessible
     result = supabase.table('settings').select('*').limit(1).execute()
     print('✅ Supabase connection successful')
-    return 0
+    sys.exit(0)
 except Exception as e:
     print('❌ Supabase connection failed:', str(e))
     print('⚠️  Please ensure:')
     print('   1. Database migrations are applied')
     print('   2. SUPABASE_URL and SUPABASE_KEY are set correctly')
     print('   3. Database is accessible from this container')
-    return 1
+    sys.exit(1)
 "
 
     return $?
@@ -92,6 +92,25 @@ validate_env() {
     return 0
 }
 
+# Check if discord.py is installed
+check_discord() {
+    echo "🔍 Checking discord.py installation..."
+
+    if uv run python -c "import discord; print('✅ discord.py is installed')" 2>/dev/null; then
+        return 0
+    else
+        echo "❌ discord.py is not installed"
+        echo "⚠️  Attempting to install discord.py..."
+        if uv add discord.py; then
+            echo "✅ discord.py installed successfully"
+            return 0
+        else
+            echo "❌ Failed to install discord.py"
+            return 1
+        fi
+    fi
+}
+
 # Main execution flow
 main() {
     echo "🐳 Docker container started"
@@ -100,6 +119,12 @@ main() {
 
     # Validate environment
     if ! validate_env; then
+        exit 1
+    fi
+
+    # Check discord.py installation
+    if ! check_discord; then
+        echo "❌ Cannot proceed without discord.py"
         exit 1
     fi
 
@@ -118,12 +143,12 @@ main() {
     # Start the bot
     echo "🤖 Starting Discord bot..."
     echo "📊 Environment:"
-    echo "   - Python: $(python --version)"
+    echo "   - Python: $(uv run python --version)"
     echo "   - Working directory: $(pwd)"
     echo "   - Log level: ${LOG_LEVEL:-INFO}"
 
-    # Execute the bot
-    exec python -m src.python_imdb_bot.rewrite
+    # Execute the bot using main.py
+    exec python main.py
 }
 
 # Handle graceful shutdown

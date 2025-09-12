@@ -18,7 +18,7 @@ from .models import Settings
 from .utils import (
     find_existing_movie, get_channel_id_by_guild, get_imdb_info, make_embed, parse_message,
     save_media_metadata, supabase, update_media_user_rating, validate_database_schema,
-    invalidate_rating_cache
+    invalidate_rating_cache, get_movie_rating_stats_cached
 )
 
 settings = Settings()  # type: ignore
@@ -280,7 +280,7 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
             try:
                 message = await channel.fetch_message(payload.message_id)
                 # Invalidate cache and update the embed with new rating stats
-                invalidate_rating_cache(movie_data["imdb_id"], payload.channel_id, guild_id)
+                await invalidate_rating_cache(movie_data["imdb_id"], payload.channel_id, guild_id)
                 await update_movie_embed(message, movie_data["imdb_id"])
                 print("DEBUG: Embed updated successfully")
             except Exception as e:
@@ -342,7 +342,7 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
         try:
             message = await channel.fetch_message(payload.message_id)
             # Invalidate cache and update the embed with new rating stats
-            invalidate_rating_cache(movie_data["imdb_id"], payload.channel_id, guild_id)
+            await invalidate_rating_cache(movie_data["imdb_id"], payload.channel_id, guild_id)
             await update_movie_embed(message, movie_data["imdb_id"])
             print("DEBUG: Embed updated successfully")
         except Exception as e:
@@ -354,8 +354,8 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 async def update_movie_embed(message: discord.Message, imdb_id: str):
     """Update the movie embed with current rating statistics."""
     try:
-        # Get current rating stats
-        rating_stats = get_movie_rating_stats(imdb_id, message.channel.id, message.guild.id)
+        # Get current rating stats with caching
+        rating_stats = await get_movie_rating_stats_cached(imdb_id, message.channel.id, message.guild.id)
 
         # Update the embed field
         embed = message.embeds[0]

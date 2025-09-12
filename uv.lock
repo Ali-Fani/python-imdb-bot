@@ -120,6 +120,15 @@ wheels = [
 ]
 
 [[package]]
+name = "async-timeout"
+version = "5.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3", size = 9274, upload_time = "2024-11-06T16:41:39.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c", size = 6233, upload_time = "2024-11-06T16:41:37.9Z" },
+]
+
+[[package]]
 name = "asyncio"
 version = "4.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -219,6 +228,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e3/ee/adda3d46d4a9120772fae6de454c8495603c37c4c3b9c60f25b1ab6401fe/black-25.1.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:030b9759066a4ee5e5aca28c3c77f9c64789cdd4de8ac1df642c40b708be6171", size = 1782926, upload_time = "2025-01-29T04:18:58.564Z" },
     { url = "https://files.pythonhosted.org/packages/cc/64/94eb5f45dcb997d2082f097a3944cfc7fe87e071907f677e80788a2d7b7a/black-25.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:a22f402b410566e2d1c950708c77ebf5ebd5d0d88a6a2e87c86d9fb48afa0d18", size = 1442613, upload_time = "2025-01-29T04:19:27.63Z" },
     { url = "https://files.pythonhosted.org/packages/09/71/54e999902aed72baf26bca0d50781b01838251a462612966e9fc4891eadd/black-25.1.0-py3-none-any.whl", hash = "sha256:95e8176dae143ba9097f351d174fdaf0ccd29efb414b362ae3fd72bf0f710717", size = 207646, upload_time = "2025-01-29T04:15:38.082Z" },
+]
+
+[[package]]
+name = "cachetools"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/61/e4fad8155db4a04bfb4734c7c8ff0882f078f24294d42798b3568eb63bff/cachetools-6.2.0.tar.gz", hash = "sha256:38b328c0889450f05f5e120f56ab68c8abaf424e1275522b138ffc93253f7e32", size = 30988, upload_time = "2025-08-25T18:57:30.924Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6c/56/3124f61d37a7a4e7cc96afc5492c78ba0cb551151e530b54669ddd1436ef/cachetools-6.2.0-py3-none-any.whl", hash = "sha256:1c76a8960c0041fcc21097e357f882197c79da0dbff766e7317890a65d7d8ba6", size = 11276, upload_time = "2025-08-25T18:57:29.684Z" },
 ]
 
 [[package]]
@@ -877,12 +895,14 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "asyncio" },
+    { name = "cachetools" },
     { name = "discord-py" },
     { name = "httpx" },
     { name = "loguru" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
+    { name = "redis" },
     { name = "structlog" },
     { name = "supabase" },
     { name = "uvloop", marker = "sys_platform != 'win32'" },
@@ -899,17 +919,19 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aiohttp", specifier = ">=3.9.5" },
+    { name = "aiohttp", specifier = ">=3.10.0" },
     { name = "asyncio", specifier = ">=3.4.3" },
+    { name = "cachetools", specifier = ">=5.3.0" },
     { name = "discord-py", specifier = ">=2.4.0" },
-    { name = "httpx", specifier = ">=0.26.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "loguru", specifier = ">=0.7.2" },
-    { name = "pydantic", specifier = ">=2.8.2" },
-    { name = "pydantic-settings", specifier = ">=2.3.4" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "pydantic-settings", specifier = ">=2.5.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
-    { name = "structlog", specifier = ">=24.1.0" },
-    { name = "supabase", specifier = ">=2.6.0" },
-    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.19.0" },
+    { name = "redis", specifier = ">=5.0.0" },
+    { name = "structlog", specifier = ">=24.4.0" },
+    { name = "supabase", specifier = ">=2.8.0" },
+    { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.20.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -933,6 +955,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d3/ca/e408fbdb6b344bf529c7e8bf020372d21114fe538392c72089462edd26e5/realtime-2.7.0.tar.gz", hash = "sha256:6b9434eeba8d756c8faf94fc0a32081d09f250d14d82b90341170602adbb019f", size = 18860, upload_time = "2025-07-28T18:54:22.949Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d2/07/a5c7aef12f9a3497f5ad77157a37915645861e8b23b89b2ad4b0f11b48ad/realtime-2.7.0-py3-none-any.whl", hash = "sha256:d55a278803529a69d61c7174f16563a9cfa5bacc1664f656959694481903d99c", size = 22409, upload_time = "2025-07-28T18:54:21.383Z" },
+]
+
+[[package]]
+name = "redis"
+version = "6.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-timeout", marker = "python_full_version < '3.11.3'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/d6/e8b92798a5bd67d659d51a18170e91c16ac3b59738d91894651ee255ed49/redis-6.4.0.tar.gz", hash = "sha256:b01bc7282b8444e28ec36b261df5375183bb47a07eb9c603f284e89cbc5ef010", size = 4647399, upload_time = "2025-08-07T08:10:11.441Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e8/02/89e2ed7e85db6c93dfa9e8f691c5087df4e3551ab39081a4d7c6d1f90e05/redis-6.4.0-py3-none-any.whl", hash = "sha256:f0544fa9604264e9464cdf4814e7d4830f74b165d52f2a330a760a88dd248b7f", size = 279847, upload_time = "2025-08-07T08:10:09.84Z" },
 ]
 
 [[package]]

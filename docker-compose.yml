@@ -4,10 +4,12 @@ services:
   imdb-bot:
     build:
       context: .
-      target: runtime
       dockerfile: Dockerfile
     container_name: python-imdb-bot
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
 
     # Environment variables from .env file
     env_file:
@@ -18,14 +20,23 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONOPTIMIZE=1
+      - REDIS_URL=redis://imdb-bot-redis:6379
+      - HEALTH_CHECK_PORT=8080
+      - DATABASE_POOL_SIZE=10
+      - CACHE_TTL=300
 
-    # Volumes for logs and persistent data (if needed)
+    # Volumes for logs and persistent data
     volumes:
-      - ./logs:/app/logs
+      - ./logs:/app/logs:rw
+      - ./data:/app/data:rw
+
+    # Ports for health checks
+    ports:
+      - "8080:8080"
 
     # Health check
     healthcheck:
-      test: ["CMD", "python", "-c", "import asyncio; print('Bot health check passed')"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -41,11 +52,11 @@ services:
     # Security
     security_opt:
       - no-new-privileges:true
-    read_only: true
+    read_only: false
     tmpfs:
       - /tmp
 
-    # Resource limits (adjust as needed)
+    # Resource limits optimized for production
     deploy:
       resources:
         limits:
@@ -55,23 +66,29 @@ services:
           cpus: '0.25'
           memory: 256M
 
-  # Optional: Redis for enhanced caching (uncomment if needed)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: imdb-bot-redis
-  #   restart: unless-stopped
-  #   volumes:
-  #     - redis_data:/data
-  #   command: redis-server --appendonly yes
-  #   healthcheck:
-  #     test: ["CMD", "redis-cli", "ping"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+    # Networks - use default network to avoid conflicts
+    networks:
+      - default
 
-# volumes:
-#   redis_data:
+  # Redis for enhanced caching and performance
+  redis:
+    image: redis:7-alpine
+    container_name: imdb-bot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    # Use default network to avoid conflicts
+    networks:
+      - default
 
-networks:
-  default:
-    name: imdb-bot-network
+volumes:
+  redis_data:
+    driver: local
+
+# Remove custom network definition to avoid conflicts

@@ -1,6 +1,8 @@
 import time
 import logging
 import sys
+import json
+import os
 from .models import Settings
 import discord
 from .models import Media, URLInfo
@@ -14,11 +16,30 @@ from .models import Media, URLInfo
 import aiohttp
 from urllib.parse import urlparse, parse_qs
 from supabase import create_client, Client
+
+# Redis imports (optional)
+try:
+    import redis.asyncio as redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    redis = None
+
 settings = Settings()  # type: ignore
 
 supabase_url: str = settings.SUPABASE_URL
 supabase_key: str = settings.SUPABASE_KEY
 supabase: Client = create_client(supabase_url, supabase_key)
+
+# Redis client setup
+redis_client = None
+if REDIS_AVAILABLE:
+    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+    try:
+        redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+    except Exception as e:
+        print(f"Warning: Failed to connect to Redis: {e}")
+        redis_client = None
 
 
 def get_imdb_id(url: str) -> tuple[str, str] | tuple[None, None]:
@@ -171,8 +192,8 @@ async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int
     embed.add_field(name="Released", value=media.Released, inline=True)
     embed.add_field(name="IMDb ID", value=media.imdbID, inline=True)
 
-    # Get community rating stats
-    rating_stats = get_movie_rating_stats(media.imdbID, channel_id, guild_id)
+    # Get community rating stats with caching
+    rating_stats = await get_movie_rating_stats_cached(media.imdbID, channel_id, guild_id)
     embed.add_field(name="Community Rating", value=format_rating_display(rating_stats["average"], rating_stats["count"]), inline=True)
 
     # Create view with trailer button if TMDB is configured and trailer is available
@@ -449,13 +470,12 @@ def format_rating_display(average: float, count: int) -> str:
         return f"⭐ {average} ({count} votes)"
 
 
-# Simple in-memory cache for rating statistics
-_rating_cache = {}
-_CACHE_TTL = 300  # 5 minutes
+# Enhanced caching with Redis support
+_CACHE_TTL = int(os.getenv('CACHE_TTL', 300))  # Default 5 minutes
 
-def get_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int) -> dict | None:
+async def get_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int) -> dict | None:
     """
-    Get cached rating statistics if available and not expired.
+    Get cached rating statistics from Redis if available and not expired.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -465,19 +485,22 @@ def get_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int) -> dic
     Returns:
         dict | None: Cached rating stats or None if not cached/expired
     """
-    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
-    if cache_key in _rating_cache:
-        cached_data, timestamp = _rating_cache[cache_key]
-        if time.time() - timestamp < _CACHE_TTL:
-            return cached_data
-        else:
-            # Expired, remove from cache
-            del _rating_cache[cache_key]
+    if not redis_client:
+        return None
+
+    cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
+    try:
+        cached_data = await redis_client.get(cache_key)
+        if cached_data:
+            return json.loads(cached_data)
+    except Exception as e:
+        print(f"Redis cache error: {e}")
+
     return None
 
-def set_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int, stats: dict):
+async def set_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int, stats: dict):
     """
-    Cache rating statistics with timestamp.
+    Cache rating statistics in Redis with TTL.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -485,25 +508,36 @@ def set_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int, stats:
         guild_id (int): Discord guild ID
         stats (dict): Rating statistics to cache
     """
-    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
-    _rating_cache[cache_key] = (stats, time.time())
+    if not redis_client:
+        return
 
-def invalidate_rating_cache(imdb_id: str, channel_id: int, guild_id: int):
+    cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
+    try:
+        await redis_client.setex(cache_key, _CACHE_TTL, json.dumps(stats))
+    except Exception as e:
+        print(f"Redis cache set error: {e}")
+
+async def invalidate_rating_cache(imdb_id: str, channel_id: int, guild_id: int):
     """
-    Remove rating statistics from cache.
+    Remove rating statistics from Redis cache.
 
     Args:
         imdb_id (str): IMDB ID of the movie
         channel_id (int): Discord channel ID
         guild_id (int): Discord guild ID
     """
-    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
-    if cache_key in _rating_cache:
-        del _rating_cache[cache_key]
+    if not redis_client:
+        return
 
-def get_movie_rating_stats_cached(imdb_id: str, channel_id: int, guild_id: int) -> dict:
+    cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
+    try:
+        await redis_client.delete(cache_key)
+    except Exception as e:
+        print(f"Redis cache delete error: {e}")
+
+async def get_movie_rating_stats_cached(imdb_id: str, channel_id: int, guild_id: int) -> dict:
     """
-    Get rating statistics with caching support.
+    Get rating statistics with Redis caching support.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -513,18 +547,43 @@ def get_movie_rating_stats_cached(imdb_id: str, channel_id: int, guild_id: int) 
     Returns:
         dict: Rating statistics (average, count, ratings)
     """
-    # Try cache first
-    cached_stats = get_cached_rating_stats(imdb_id, channel_id, guild_id)
+    # Try Redis cache first
+    cached_stats = await get_cached_rating_stats(imdb_id, channel_id, guild_id)
     if cached_stats:
         return cached_stats
 
     # Cache miss - fetch from database
     stats = get_movie_rating_stats(imdb_id, channel_id, guild_id)
 
-    # Cache the result
-    set_cached_rating_stats(imdb_id, channel_id, guild_id, stats)
+    # Cache the result in Redis
+    await set_cached_rating_stats(imdb_id, channel_id, guild_id, stats)
 
     return stats
+
+# Fallback to in-memory cache if Redis is not available
+_rating_cache = {}
+
+def get_cached_rating_stats_sync(imdb_id: str, channel_id: int, guild_id: int) -> dict | None:
+    """Synchronous fallback for in-memory cache"""
+    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
+    if cache_key in _rating_cache:
+        cached_data, timestamp = _rating_cache[cache_key]
+        if time.time() - timestamp < _CACHE_TTL:
+            return cached_data
+        else:
+            del _rating_cache[cache_key]
+    return None
+
+def set_cached_rating_stats_sync(imdb_id: str, channel_id: int, guild_id: int, stats: dict):
+    """Synchronous fallback for in-memory cache"""
+    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
+    _rating_cache[cache_key] = (stats, time.time())
+
+def invalidate_rating_cache_sync(imdb_id: str, channel_id: int, guild_id: int):
+    """Synchronous fallback for in-memory cache"""
+    cache_key = f"{imdb_id}:{channel_id}:{guild_id}"
+    if cache_key in _rating_cache:
+        del _rating_cache[cache_key]
 
 def get_movie_from_message_id(message_id: int) -> dict | None:
     """
