@@ -74,6 +74,10 @@ WORKDIR /app
 # Copy application code with proper ownership
 COPY --chown=botuser:botuser . .
 
+# Copy and set entrypoint script (before switching to non-root user)
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Switch to non-root user
 USER botuser
 
@@ -86,10 +90,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONOPTIMIZE=1 \
     PYTHONPATH=/app
-
-# Copy and set entrypoint script
-COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 # Health check port
 EXPOSE 8080

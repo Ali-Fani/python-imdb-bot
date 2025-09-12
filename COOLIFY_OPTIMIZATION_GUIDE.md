@@ -144,6 +144,32 @@ RUN echo "nameserver 8.8.8.8" >> /etc/resolv.conf
 RUN for i in {1..3}; do apt-get update && break || sleep 5; done
 ```
 
+#### Permission Issues with Entrypoint Script
+**Problem**: `chmod: changing permissions of '/usr/local/bin/docker-entrypoint.sh': Operation not permitted`
+**Solution**: Move COPY and chmod commands before switching to non-root user:
+```dockerfile
+# ❌ Wrong order
+USER botuser
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# ✅ Correct order
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+USER botuser
+```
+
+#### uv.lock Corruption
+**Problem**: `error: Failed to parse uv.lock`
+**Solution**: Regenerate the lock file:
+```bash
+# Remove corrupted lock file
+rm uv.lock
+
+# Regenerate dependencies
+uv lock --upgrade
+```
+
 ## ⚙️ Coolify Configuration
 
 ### 1. Service Setup
