@@ -12,12 +12,7 @@ import aiohttp
 from urllib.parse import urlparse, parse_qs
 from supabase import create_client, Client
 import re
-from .models import Settings
-import discord
-from .models import Media, URLInfo
-import aiohttp
-from urllib.parse import urlparse, parse_qs
-from supabase import create_client, Client
+from bs4 import BeautifulSoup
 
 # Import logger
 from .logging_config import get_logger
@@ -92,7 +87,17 @@ async def get_imdb_info(imdb_id: str) -> Media | None:
         async with session.get(url) as response:
             data = await response.json()
             if data.get('Response') == 'True':
+                # Handle missing poster from OMDB
+                if data.get('Poster') == 'N/A':
+                    data['Poster'] = None
+
                 media = Media(**data)
+
+                # If poster is still None, try scraping from IMDb
+                if not media.Poster:
+                    scraped_poster = await get_poster_from_imdb(imdb_id)
+                    if scraped_poster:
+                        media.Poster = scraped_poster
 
                 # Try to get trailer URL from TMDB if API key is configured
                 if hasattr(settings, 'TMDB_API_KEY') and settings.TMDB_API_KEY and settings.TMDB_API_KEY != 'your_tmdb_api_key_here':
@@ -103,6 +108,42 @@ async def get_imdb_info(imdb_id: str) -> Media | None:
                             media.trailer_url = trailer_url
 
                 return media
+    return None
+
+
+async def get_poster_from_imdb(imdb_id: str) -> str | None:
+    """
+    Scrape poster URL from IMDb page as fallback when OMDB doesn't have it.
+
+    Args:
+        imdb_id (str): The IMDb ID (e.g., 'tt0111161')
+
+    Returns:
+        str | None: Poster URL or None if not found
+    """
+    log = get_logger("imdb_scraper")
+
+    async with aiohttp.ClientSession() as session:
+        url = f"https://www.imdb.com/title/{imdb_id}/"
+        try:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    soup = BeautifulSoup(html, 'html.parser')
+
+                    # Look for og:image meta tag
+                    og_image = soup.find('meta', property='og:image')
+                    if og_image and og_image.get('content'):
+                        poster_url = og_image['content']
+                        log.info("Poster found via IMDb scraping", imdb_id=imdb_id, poster_url=poster_url)
+                        return poster_url
+
+                    log.debug("No og:image found in IMDb page", imdb_id=imdb_id)
+                else:
+                    log.warning("Failed to fetch IMDb page", imdb_id=imdb_id, status=response.status)
+        except Exception as e:
+            log.error("Error scraping IMDb for poster", imdb_id=imdb_id, error=str(e))
+
     return None
 
 
@@ -206,7 +247,8 @@ async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int
         url=imdb_url,
         color=0x00FF00,
     )
-    embed.set_image(url=media.Poster)
+    if media.Poster:
+        embed.set_image(url=media.Poster)
     embed.add_field(name="Director", value=media.Director, inline=True)
     embed.add_field(name="Writer", value=media.Writer, inline=True)
     embed.add_field(name="Actors", value=media.Actors, inline=True)

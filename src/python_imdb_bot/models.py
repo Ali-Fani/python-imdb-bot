@@ -64,7 +64,7 @@ class Media(BaseModel):
     Language: str
     Country: str
     Awards: str
-    Poster: HttpUrl
+    Poster: Optional[HttpUrl] = None
     Ratings: List[Rating]
     Metascore: Optional[str]
     imdbRating: str
