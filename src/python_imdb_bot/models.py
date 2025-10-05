@@ -105,6 +105,7 @@ class Settings:
         self.SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
         self.SUPABASE_URL = os.getenv('SUPABASE_URL', '')
         self.TMDB_API_KEY = os.getenv('TMDB_API_KEY', '')
+        self.SENTRY_DSN = os.getenv('SENTRY_DSN', '')
         self.CHANNEL_ID = int(os.getenv('CHANNEL_ID', '0'))
         self.LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
         self.LOG_FILE = os.getenv('LOG_FILE', '/app/logs/bot.log')

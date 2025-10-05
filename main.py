@@ -17,6 +17,31 @@ from python_imdb_bot.logging_config import setup_logging, get_logger
 from python_imdb_bot.utils import validate_database_schema
 from python_imdb_bot.health import start_health_server
 from python_imdb_bot.rewrite import run_bot, main as bot_main
+from python_imdb_bot.models import Settings
+
+# Initialize Sentry as early as possible
+settings = Settings()
+if settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.asyncio import AsyncioIntegration
+    from sentry_sdk.integrations.httpx import HttpxIntegration
+
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        # Enable performance monitoring
+        traces_sample_rate=1.0,
+        # Enable profiling for detailed performance insights
+        profiles_sample_rate=1.0,
+        integrations=[
+            AsyncioIntegration(),
+            HttpxIntegration(),
+        ],
+        # Capture all errors
+        send_default_pii=True,
+        # Environment info
+        environment="production",
+        release="1.0.0",
+    )
 
 async def main():
     """Main entry point"""

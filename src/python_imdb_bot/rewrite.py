@@ -13,6 +13,13 @@ from .logging_config import setup_logging, get_logger
 from .utils import validate_database_schema
 from .health import start_health_server
 
+# Import Sentry for performance monitoring
+try:
+    import sentry_sdk
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+
 from .views import ChannelMenu
 from .models import Settings
 from .utils import (
@@ -79,9 +86,15 @@ def is_bot_initiated_removal(user_id: int, message_id: int, emoji_str: str) -> b
 
 @bot.event
 async def on_ready() -> None:  # This event is called when the bot is ready
-    log = get_logger("bot")
-    log.info("Bot started successfully", user=bot.user.name, user_id=bot.user.id)
-    log.info("Enhanced IMDB rating system ready", guilds=len(bot.guilds))
+    if SENTRY_AVAILABLE:
+        with sentry_sdk.start_transaction(op="bot.ready", name="Bot Ready Event"):
+            log = get_logger("bot")
+            log.info("Bot started successfully", user=bot.user.name, user_id=bot.user.id)
+            log.info("Enhanced IMDB rating system ready", guilds=len(bot.guilds))
+    else:
+        log = get_logger("bot")
+        log.info("Bot started successfully", user=bot.user.name, user_id=bot.user.id)
+        log.info("Enhanced IMDB rating system ready", guilds=len(bot.guilds))
 
 
 
@@ -92,6 +105,18 @@ async def on_ready() -> None:  # This event is called when the bot is ready
 async def on_message(
     message: discord.Message,
 ) -> None:  # This event is called when a message is sent
+    if SENTRY_AVAILABLE:
+        with sentry_sdk.start_transaction(op="bot.message", name="Message Processing Event") as transaction:
+            transaction.set_data("message_id", message.id)
+            transaction.set_data("author_id", message.author.id)
+            transaction.set_data("channel_id", message.channel.id)
+            transaction.set_data("guild_id", message.guild.id if message.guild else None)
+            await _process_message(message)
+    else:
+        await _process_message(message)
+
+
+async def _process_message(message: discord.Message) -> None:
     log = get_logger("message_handler")
 
     # Log message reception
@@ -193,6 +218,19 @@ async def on_message(
 @bot.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
     """Handle when a user adds a reaction to a message (works without message cache)."""
+    if SENTRY_AVAILABLE:
+        with sentry_sdk.start_transaction(op="bot.reaction.add", name="Reaction Add Event") as transaction:
+            transaction.set_data("user_id", payload.user_id)
+            transaction.set_data("message_id", payload.message_id)
+            transaction.set_data("channel_id", payload.channel_id)
+            transaction.set_data("guild_id", payload.guild_id)
+            transaction.set_data("emoji", str(payload.emoji))
+            await _process_reaction_add(payload)
+    else:
+        await _process_reaction_add(payload)
+
+
+async def _process_reaction_add(payload: discord.RawReactionActionEvent) -> None:
     print(f"DEBUG: Raw reaction added by user {payload.user_id} to message {payload.message_id}")
 
     # Ignore bot's own reactions
@@ -360,6 +398,19 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 @bot.event
 async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
     """Handle when a user removes a reaction from a message (works without message cache)."""
+    if SENTRY_AVAILABLE:
+        with sentry_sdk.start_transaction(op="bot.reaction.remove", name="Reaction Remove Event") as transaction:
+            transaction.set_data("user_id", payload.user_id)
+            transaction.set_data("message_id", payload.message_id)
+            transaction.set_data("channel_id", payload.channel_id)
+            transaction.set_data("guild_id", payload.guild_id)
+            transaction.set_data("emoji", str(payload.emoji))
+            await _process_reaction_remove(payload)
+    else:
+        await _process_reaction_remove(payload)
+
+
+async def _process_reaction_remove(payload: discord.RawReactionActionEvent) -> None:
     print(f"DEBUG: Raw reaction removed by user {payload.user_id} from message {payload.message_id}")
 
     # Ignore bot's own reactions
