@@ -18,7 +18,7 @@ from .models import Settings
 from .utils import (
     find_existing_movie, get_channel_id_by_guild, get_imdb_info, make_embed, parse_message,
     save_media_metadata, supabase, update_media_user_rating, validate_database_schema,
-    invalidate_rating_cache, get_movie_rating_stats_cached
+    invalidate_rating_cache, get_movie_rating_stats_cached, database_keep_alive_task
 )
 
 settings = Settings()  # type: ignore
@@ -92,34 +92,100 @@ async def on_ready() -> None:  # This event is called when the bot is ready
 async def on_message(
     message: discord.Message,
 ) -> None:  # This event is called when a message is sent
+    log = get_logger("message_handler")
+
+    # Log message reception
+    log.info("Message received",
+             message_id=message.id,
+             author_id=message.author.id,
+             author_name=message.author.name,
+             channel_id=message.channel.id,
+             guild_id=message.guild.id if message.guild else None,
+             content_length=len(message.content),
+             has_attachments=len(message.attachments) > 0)
+
     if message.author.bot:  # If the message is sent by a bot, return
+        log.debug("Ignoring bot message", author_id=message.author.id)
         return
 
     if message.guild is not None:
         guild_id = message.guild.id
+    else:
+        log.warning("Message received outside guild context", message_id=message.id)
+        return
+
     channel_id = get_channel_id_by_guild(guild_id)
-    print(f"DEBUG: Guild ID: {guild_id}, Channel ID data: {channel_id.data}")
+    log.debug("Channel configuration check",
+              guild_id=guild_id,
+              configured_channel=channel_id.data[0]["channel_id"] if channel_id.data else None,
+              message_channel=message.channel.id)
+
     if channel_id.data and message.channel.id == channel_id.data[0]["channel_id"]:
-        url_info = await parse_message(message.content)
-        if url_info:
-            exists_in_channel = await find_existing_movie(message, url_info)
-            if exists_in_channel.data:
-                # Movie already exists - inform user they can rate with reactions
-                already_exist_message = await message.channel.send(
-                    f"Movie already exists! You can rate it using digit emojis (1️⃣-9️⃣, 🔟) on the embed message (1-10 scale)."
-                )
-                await message.delete()
-                await already_exist_message.delete(delay=5)
-                return
-            else:
-                media_info = await get_imdb_info(url_info.IMDB_ID)
-                if media_info:
-                    embed, view = await make_embed(
-                        media_info, url_info.IMDB_URI, message.channel.id, message.guild.id
+        log.info("Processing message in configured channel",
+                 guild_id=guild_id,
+                 channel_id=message.channel.id)
+
+        try:
+            url_info = await parse_message(message.content)
+            if url_info:
+                log.info("IMDB URL parsed successfully",
+                         imdb_id=url_info.IMDB_ID,
+                         imdb_uri=url_info.IMDB_URI,
+                         user_rating=url_info.USER_RATING)
+
+                exists_in_channel = await find_existing_movie(message, url_info)
+                if exists_in_channel.data:
+                    # Movie already exists - inform user they can rate with reactions
+                    log.info("Movie already exists in channel",
+                             imdb_id=url_info.IMDB_ID,
+                             existing_message_id=exists_in_channel.data[0]["message_id"])
+
+                    already_exist_message = await message.channel.send(
+                        f"Movie already exists! You can rate it using digit emojis (1️⃣-9️⃣, 🔟) on the embed message (1-10 scale)."
                     )
-                    sent_message = await message.channel.send(embed=embed, view=view)
-                    save_media_metadata(url_info, media_info, sent_message)
                     await message.delete()
+                    await already_exist_message.delete(delay=5)
+                    return
+                else:
+                    log.info("Fetching IMDB info for new movie", imdb_id=url_info.IMDB_ID)
+                    media_info = await get_imdb_info(url_info.IMDB_ID)
+                    if media_info:
+                        log.info("IMDB info retrieved successfully",
+                                 title=media_info.Title,
+                                 year=media_info.Year,
+                                 imdb_rating=media_info.imdbRating)
+
+                        embed, view = await make_embed(
+                            media_info, url_info.IMDB_URI, message.channel.id, message.guild.id
+                        )
+                        sent_message = await message.channel.send(embed=embed, view=view)
+                        save_media_metadata(url_info, media_info, sent_message)
+                        await message.delete()
+
+                        log.info("Movie embed posted successfully",
+                                 sent_message_id=sent_message.id,
+                                 imdb_id=url_info.IMDB_ID)
+                    else:
+                        log.error("Failed to retrieve IMDB info", imdb_id=url_info.IMDB_ID)
+                        error_msg = await message.channel.send("Movie not found or API error occurred.")
+                        await error_msg.delete(delay=10)
+            else:
+                log.debug("Message does not contain valid IMDB URL", content_preview=message.content[:100])
+        except Exception as e:
+            log.error("Error processing message",
+                     error=str(e),
+                     message_id=message.id,
+                     content_preview=message.content[:100])
+            try:
+                error_msg = await message.channel.send("An error occurred while processing your message.")
+                await error_msg.delete(delay=10)
+            except:
+                pass
+    else:
+        log.debug("Message not in configured channel",
+                  guild_id=guild_id,
+                  message_channel=message.channel.id,
+                  configured_channel=channel_id.data[0]["channel_id"] if channel_id.data else None)
 
     await bot.process_commands(message)
 
@@ -520,8 +586,11 @@ def main():
             # Start Discord bot
             bot_task = asyncio.create_task(run_bot())
 
-            # Wait for both to complete (or fail)
-            await asyncio.gather(health_task, bot_task)
+            # Start database keep-alive task
+            keep_alive_task = asyncio.create_task(database_keep_alive_task())
+
+            # Wait for all tasks to complete (or fail)
+            await asyncio.gather(health_task, bot_task, keep_alive_task)
 
         except KeyboardInterrupt:
             log.info("Shutdown requested by user")

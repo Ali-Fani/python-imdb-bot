@@ -3,6 +3,8 @@ import logging
 import sys
 import json
 import os
+import asyncio
+from pathlib import Path
 from .models import Settings
 import discord
 from .models import Media, URLInfo
@@ -17,13 +19,19 @@ import aiohttp
 from urllib.parse import urlparse, parse_qs
 from supabase import create_client, Client
 
-# Redis imports (optional)
+# Import logger
+from .logging_config import get_logger
+
+# TinyDB imports (required - already installed)
 try:
-    import redis.asyncio as redis
-    REDIS_AVAILABLE = True
+    from tinydb import TinyDB, Query
+    from tinydb.table import Document
+    TINYDB_AVAILABLE = True
 except ImportError:
-    REDIS_AVAILABLE = False
-    redis = None
+    TINYDB_AVAILABLE = False
+    TinyDB = None
+    Query = None
+    Document = None
 
 settings = Settings()  # type: ignore
 
@@ -31,15 +39,20 @@ supabase_url: str = settings.SUPABASE_URL
 supabase_key: str = settings.SUPABASE_KEY
 supabase: Client = create_client(supabase_url, supabase_key)
 
-# Redis client setup
-redis_client = None
-if REDIS_AVAILABLE:
-    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+# TinyDB client setup
+tinydb_client = None
+if TINYDB_AVAILABLE:
+    # Use a cache file in the data directory
+    cache_dir = Path(settings.LOG_FILE).parent / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / "rating_cache.json"
     try:
-        redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+        tinydb_client = TinyDB(cache_file)
+        # Create index on cache_key for better performance
+        tinydb_client.table('cache').insert(Document({}, doc_id=0))  # Ensure table exists
     except Exception as e:
-        print(f"Warning: Failed to connect to Redis: {e}")
-        redis_client = None
+        print(f"Warning: Failed to initialize TinyDB cache: {e}")
+        tinydb_client = None
 
 
 def get_imdb_id(url: str) -> tuple[str, str] | tuple[None, None]:
@@ -139,24 +152,38 @@ async def get_movie_trailer(tmdb_id: str) -> str | None:
                             return f"https://www.youtube.com/watch?v={key}"
     return None
 async def parse_message(message: str) -> URLInfo | None:
+    log = get_logger("message_parser")
+
+    log.debug("Parsing message for IMDB URL", message_length=len(message))
+
     # Regular expression to match IMDB URL and ID
     imdb_pattern = r'(https?://(?:www\.)?imdb\.com/title/(tt\d+))'
-    
+
     # Find IMDB URL and ID
     match = re.search(imdb_pattern, message)
     if not match:
+        log.debug("No IMDB URL found in message")
         return None
-    
+
     imdb_url, imdb_id = match.groups()
-    
+    log.info("IMDB URL found and parsed",
+             imdb_id=imdb_id,
+             imdb_url=imdb_url)
+
     # Parse query parameters
     parsed_url = urlparse(message)
     query_params = parse_qs(parsed_url.query)
-    
+
     # Extract rating and comment (if present)
     rating = query_params.get('rating', [None])[0]
-    
-    return URLInfo(IMDB_URI=imdb_url, IMDB_ID=imdb_id, USER_RATING=rating)
+
+    if rating:
+        log.info("User rating found in URL", rating=rating)
+
+    url_info = URLInfo(IMDB_URI=imdb_url, IMDB_ID=imdb_id, USER_RATING=rating)
+    log.debug("URL parsing completed successfully", has_rating=rating is not None)
+
+    return url_info
 
 
 async def make_embed(media: Media, imdb_url: str, channel_id: int, guild_id: int) -> tuple[discord.Embed, discord.ui.View | None]:
@@ -475,7 +502,7 @@ _CACHE_TTL = int(os.getenv('CACHE_TTL', 300))  # Default 5 minutes
 
 async def get_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int) -> dict | None:
     """
-    Get cached rating statistics from Redis if available and not expired.
+    Get cached rating statistics from TinyDB if available and not expired.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -485,22 +512,55 @@ async def get_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int) 
     Returns:
         dict | None: Cached rating stats or None if not cached/expired
     """
-    if not redis_client:
+    log = get_logger("cache")
+
+    if not tinydb_client:
+        log.debug("TinyDB client not available, skipping cache lookup")
         return None
 
     cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
     try:
-        cached_data = await redis_client.get(cache_key)
-        if cached_data:
-            return json.loads(cached_data)
+        table = tinydb_client.table('cache')
+        query = Query()
+        result = table.get(query.cache_key == cache_key)
+
+        if result:
+            # Check if cache entry is still valid (TTL)
+            cached_time = result.get('timestamp', 0)
+            if time.time() - cached_time < _CACHE_TTL:
+                log.info("Cache hit for rating stats",
+                         imdb_id=imdb_id,
+                         channel_id=channel_id,
+                         guild_id=guild_id,
+                         cache_key=cache_key)
+                return result['data']
+            else:
+                # Cache expired, remove it
+                table.remove(doc_ids=[result.doc_id])
+                log.debug("Cache expired and removed",
+                         imdb_id=imdb_id,
+                         channel_id=channel_id,
+                         guild_id=guild_id,
+                         cache_key=cache_key)
+
+        log.debug("Cache miss for rating stats",
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key)
     except Exception as e:
-        print(f"Redis cache error: {e}")
+        log.error("TinyDB cache error during get operation",
+                 error=str(e),
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key)
 
     return None
 
 async def set_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int, stats: dict):
     """
-    Cache rating statistics in Redis with TTL.
+    Cache rating statistics in TinyDB with TTL.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -508,36 +568,84 @@ async def set_cached_rating_stats(imdb_id: str, channel_id: int, guild_id: int, 
         guild_id (int): Discord guild ID
         stats (dict): Rating statistics to cache
     """
-    if not redis_client:
+    log = get_logger("cache")
+
+    if not tinydb_client:
+        log.debug("TinyDB client not available, skipping cache set")
         return
 
     cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
     try:
-        await redis_client.setex(cache_key, _CACHE_TTL, json.dumps(stats))
+        table = tinydb_client.table('cache')
+        query = Query()
+
+        # Remove any existing entry for this cache key
+        table.remove(query.cache_key == cache_key)
+
+        # Insert new cache entry
+        cache_entry = {
+            'cache_key': cache_key,
+            'data': stats,
+            'timestamp': time.time(),
+            'imdb_id': imdb_id,
+            'channel_id': channel_id,
+            'guild_id': guild_id
+        }
+
+        table.insert(cache_entry)
+        log.info("Cache set for rating stats",
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key,
+                 ttl=_CACHE_TTL,
+                 average=stats.get("average"),
+                 count=stats.get("count"))
     except Exception as e:
-        print(f"Redis cache set error: {e}")
+        log.error("TinyDB cache error during set operation",
+                 error=str(e),
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key)
 
 async def invalidate_rating_cache(imdb_id: str, channel_id: int, guild_id: int):
     """
-    Remove rating statistics from Redis cache.
+    Remove rating statistics from TinyDB cache.
 
     Args:
         imdb_id (str): IMDB ID of the movie
         channel_id (int): Discord channel ID
         guild_id (int): Discord guild ID
     """
-    if not redis_client:
+    log = get_logger("cache")
+
+    if not tinydb_client:
+        log.debug("TinyDB client not available, skipping cache invalidation")
         return
 
     cache_key = f"rating_stats:{imdb_id}:{channel_id}:{guild_id}"
     try:
-        await redis_client.delete(cache_key)
+        table = tinydb_client.table('cache')
+        query = Query()
+        removed_docs = table.remove(query.cache_key == cache_key)
+        log.info("Cache invalidated for rating stats",
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key,
+                 deleted=len(removed_docs) > 0)
     except Exception as e:
-        print(f"Redis cache delete error: {e}")
+        log.error("TinyDB cache error during delete operation",
+                 error=str(e),
+                 imdb_id=imdb_id,
+                 channel_id=channel_id,
+                 guild_id=guild_id,
+                 cache_key=cache_key)
 
 async def get_movie_rating_stats_cached(imdb_id: str, channel_id: int, guild_id: int) -> dict:
     """
-    Get rating statistics with Redis caching support.
+    Get rating statistics with TinyDB caching support.
 
     Args:
         imdb_id (str): IMDB ID of the movie
@@ -547,18 +655,102 @@ async def get_movie_rating_stats_cached(imdb_id: str, channel_id: int, guild_id:
     Returns:
         dict: Rating statistics (average, count, ratings)
     """
-    # Try Redis cache first
+    log = get_logger("cache")
+
+    # Clean up expired cache entries periodically (simple approach)
+    await cleanup_expired_cache_entries()
+
+    # Try TinyDB cache first
     cached_stats = await get_cached_rating_stats(imdb_id, channel_id, guild_id)
     if cached_stats:
         return cached_stats
 
     # Cache miss - fetch from database
+    log.debug("Fetching rating stats from database (cache miss)",
+             imdb_id=imdb_id,
+             channel_id=channel_id,
+             guild_id=guild_id)
+
     stats = get_movie_rating_stats(imdb_id, channel_id, guild_id)
 
-    # Cache the result in Redis
+    # Cache the result in TinyDB
     await set_cached_rating_stats(imdb_id, channel_id, guild_id, stats)
 
     return stats
+
+
+async def cleanup_expired_cache_entries():
+    """
+    Remove expired cache entries from TinyDB.
+    This is called periodically to maintain cache cleanliness.
+    """
+    if not tinydb_client:
+        return
+
+    try:
+        table = tinydb_client.table('cache')
+        current_time = time.time()
+
+        # Find all expired entries
+        query = Query()
+        expired_entries = table.search(query.timestamp < (current_time - _CACHE_TTL))
+
+        if expired_entries:
+            # Remove expired entries
+            doc_ids_to_remove = [doc.doc_id for doc in expired_entries]
+            table.remove(doc_ids=doc_ids_to_remove)
+
+            log = get_logger("cache")
+            log.debug("Cleaned up expired cache entries", count=len(expired_entries))
+
+    except Exception as e:
+        log = get_logger("cache")
+        log.error("Error during cache cleanup", error=str(e))
+
+
+async def keep_database_alive():
+    """
+    Perform a simple database query to prevent Supabase free plan suspension.
+    This function queries the settings table to keep the database active.
+    """
+    log = get_logger("keep_alive")
+
+    try:
+        # Simple query to keep database active - count settings records
+        result = supabase.table("settings").select("id", count="exact").limit(1).execute()
+        log.info("Database keep-alive query executed successfully",
+                settings_count=result.count if hasattr(result, 'count') else 'unknown')
+        return True
+    except Exception as e:
+        log.error("Database keep-alive query failed", error=str(e))
+        return False
+
+
+async def database_keep_alive_task():
+    """
+    Background task that runs periodically to keep the Supabase database alive.
+    Runs every 6 hours to prevent free plan suspension.
+    """
+    log = get_logger("keep_alive")
+
+    # Run every 6 hours (21600 seconds) - Supabase free plan suspends after ~7 days
+    KEEP_ALIVE_INTERVAL = 6 * 60 * 60  # 6 hours in seconds
+
+    log.info("Starting database keep-alive task", interval_hours=KEEP_ALIVE_INTERVAL/3600)
+
+    while True:
+        try:
+            success = await keep_database_alive()
+            if success:
+                log.debug("Database keep-alive successful")
+            else:
+                log.warning("Database keep-alive failed - will retry on next interval")
+
+        except Exception as e:
+            log.error("Unexpected error in keep-alive task", error=str(e))
+
+        # Wait for next interval
+        await asyncio.sleep(KEEP_ALIVE_INTERVAL)
 
 # Fallback to in-memory cache if Redis is not available
 _rating_cache = {}
