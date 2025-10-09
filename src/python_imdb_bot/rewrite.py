@@ -602,6 +602,38 @@ async def sync(ctx: commands.Context) -> None:
     await ctx.send(f"Synced {len(synced)} commands globally")
 
 
+@bot.command() # type: ignore
+@commands.is_owner()
+async def test_error(ctx: commands.Context) -> None:
+    """Test Sentry error reporting by raising an exception"""
+    try:
+        # This will cause an error to test Sentry
+        raise ValueError("Test error for Sentry integration")
+    except Exception as e:
+        # Re-raise to let Sentry catch it
+        raise e
+
+
+@bot.command() # type: ignore
+@commands.is_owner()
+async def test_performance(ctx: commands.Context) -> None:
+    """Test Sentry performance monitoring"""
+    import asyncio
+
+    if SENTRY_AVAILABLE:
+        with sentry_sdk.start_transaction(op="test.performance", name="Performance Test Transaction") as transaction:
+            transaction.set_data("user_id", ctx.author.id)
+            transaction.set_data("channel_id", ctx.channel.id)
+            transaction.set_data("guild_id", ctx.guild.id if ctx.guild else None)
+
+            # Simulate some work
+            await asyncio.sleep(0.1)
+
+            await ctx.send("Performance test completed - check Sentry for transaction data")
+    else:
+        await ctx.send("Sentry not available")
+
+
 async def run_bot():
     """Run the Discord bot"""
     try:

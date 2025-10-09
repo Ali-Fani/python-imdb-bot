@@ -42,6 +42,9 @@ if settings.SENTRY_DSN:
         environment="production",
         release="1.0.0",
     )
+    print("Sentry initialized successfully")
+else:
+    print("Sentry DSN not configured")
 
 async def main():
     """Main entry point"""

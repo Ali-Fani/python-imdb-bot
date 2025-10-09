@@ -55,7 +55,7 @@ def get_imdb_id(url: str) -> tuple[str, str] | tuple[None, None]:
     Extracts the IMDb ID and rating from the given URL.
 
     Args:
-        url (str): The IMDb URL.
+        url (str): The movie URL from any site.
 
     Returns:
         tuple[str, str] | tuple[None, None]: A tuple containing the IMDb ID and rating if found,
@@ -63,7 +63,7 @@ def get_imdb_id(url: str) -> tuple[str, str] | tuple[None, None]:
 
     """
     match = re.search(
-        r"^https?://www\.imdb\.com/[Tt]itle[?/][a-zA-Z]+([0-9]+)/?(#(\d.\d?))?", url
+        r"^https?://[^/]+/(?:[Tt]itle|movie)[?/][a-zA-Z]+([0-9]+)/?(#(\d.\d?))?", url
     )
     if match:
         return match.group(1), match.group(3)
@@ -195,19 +195,19 @@ async def get_movie_trailer(tmdb_id: str) -> str | None:
 async def parse_message(message: str) -> URLInfo | None:
     log = get_logger("message_parser")
 
-    log.debug("Parsing message for IMDB URL", message_length=len(message))
+    log.debug("Parsing message for movie URL", message_length=len(message))
 
-    # Regular expression to match IMDB URL and ID
-    imdb_pattern = r'(https?://(?:www\.)?imdb\.com/title/(tt\d+))'
+    # Regular expression to match movie URLs from various sites and extract IMDB ID
+    imdb_pattern = r'(https?://(?:[^/]+)/(?:title|movie)/(tt\d+))'
 
-    # Find IMDB URL and ID
+    # Find movie URL and ID
     match = re.search(imdb_pattern, message)
     if not match:
-        log.debug("No IMDB URL found in message")
+        log.debug("No movie URL found in message")
         return None
 
     imdb_url, imdb_id = match.groups()
-    log.info("IMDB URL found and parsed",
+    log.info("Movie URL found and parsed",
              imdb_id=imdb_id,
              imdb_url=imdb_url)
 
