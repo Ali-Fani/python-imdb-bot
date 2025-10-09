@@ -33,6 +33,16 @@ async def channel_autocomplete(
     interaction: discord.Interaction,
     current: str,
 ) -> list[app_commands.Choice[str]]:
+    """
+    Provide autocomplete suggestions for channel selection.
+
+    Args:
+        interaction (discord.Interaction): The Discord interaction object
+        current (str): The current input string for filtering
+
+    Returns:
+        list[app_commands.Choice[str]]: List of up to 25 channel choices matching the current input
+    """
     if interaction.guild is None:
         return []
     channels = interaction.guild.text_channels
@@ -65,7 +75,17 @@ bot_initiated_removals = set()
 REMOVAL_COOLDOWN = 5  # seconds
 
 def track_reaction_removal(user_id: int, message_id: int, emoji_str: str):
-    """Track a bot-initiated reaction removal to prevent double-processing"""
+    """
+    Track a bot-initiated reaction removal to prevent double-processing.
+
+    This prevents the bot from processing its own reaction removals when handling
+    invalid reactions or duplicate ratings.
+
+    Args:
+        user_id (int): Discord user ID
+        message_id (int): Discord message ID
+        emoji_str (str): The emoji that was removed
+    """
     key = f"{user_id}:{message_id}:{emoji_str}"
     bot_initiated_removals.add(key)
 
@@ -85,7 +105,14 @@ def is_bot_initiated_removal(user_id: int, message_id: int, emoji_str: str) -> b
 
 
 @bot.event
-async def on_ready() -> None:  # This event is called when the bot is ready
+async def on_ready() -> None:
+    """
+    Event handler called when the Discord bot has successfully connected and is ready.
+
+    This event initializes the bot and logs startup information including user details
+    and the number of guilds the bot is connected to. Includes Sentry performance monitoring
+    if available.
+    """
     if SENTRY_AVAILABLE:
         with sentry_sdk.start_transaction(op="bot.ready", name="Bot Ready Event"):
             log = get_logger("bot")
@@ -102,9 +129,16 @@ async def on_ready() -> None:  # This event is called when the bot is ready
 
 @bot.event
 @commands.guild_only()
-async def on_message(
-    message: discord.Message,
-) -> None:  # This event is called when a message is sent
+async def on_message(message: discord.Message) -> None:
+    """
+    Event handler for new messages in Discord guilds.
+
+    Processes messages to detect IMDB URLs and create movie embeds with rating functionality.
+    Includes Sentry performance monitoring for message processing operations.
+
+    Args:
+        message (discord.Message): The Discord message object
+    """
     if SENTRY_AVAILABLE:
         with sentry_sdk.start_transaction(op="bot.message", name="Message Processing Event") as transaction:
             transaction.set_data("message_id", message.id)
@@ -117,6 +151,19 @@ async def on_message(
 
 
 async def _process_message(message: discord.Message) -> None:
+    """
+    Process incoming Discord messages for IMDB URL detection and movie posting.
+
+    This function handles the core bot logic:
+    1. Validates the message (ignores bots, checks channel configuration)
+    2. Parses messages for IMDB URLs
+    3. Checks if movie already exists
+    4. Fetches movie data from OMDB API
+    5. Creates and posts movie embed with rating functionality
+
+    Args:
+        message (discord.Message): The Discord message to process
+    """
     log = get_logger("message_handler")
 
     # Log message reception
@@ -231,6 +278,18 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
 
 
 async def _process_reaction_add(payload: discord.RawReactionActionEvent) -> None:
+    """
+    Process reaction additions for movie rating functionality.
+
+    Handles the core rating system logic:
+    1. Validates reaction emoji and user permissions
+    2. Checks for duplicate ratings
+    3. Saves rating to database
+    4. Updates movie embed with new statistics
+
+    Args:
+        payload (discord.RawReactionActionEvent): The raw reaction event payload
+    """
     print(f"DEBUG: Raw reaction added by user {payload.user_id} to message {payload.message_id}")
 
     # Ignore bot's own reactions
@@ -257,13 +316,13 @@ async def _process_reaction_add(payload: discord.RawReactionActionEvent) -> None
 
     print(f"DEBUG: Found movie data for IMDB ID: {movie_data['imdb_id']}")
 
-    # Validate the emoji
+    # Validate the emoji - only allow rating emojis (1️⃣-9️⃣, 🔟)
     emoji_str = str(payload.emoji)
     print(f"DEBUG: Validating emoji: '{emoji_str}'")
 
     if not is_valid_rating_emoji(emoji_str):
         print(f"DEBUG: Invalid emoji '{emoji_str}', removing reaction")
-        # Track this as a bot-initiated removal
+        # Track this as a bot-initiated removal to prevent double-processing
         track_reaction_removal(payload.user_id, payload.message_id, emoji_str)
 
         # Remove invalid reaction
@@ -363,12 +422,13 @@ async def _process_reaction_add(payload: discord.RawReactionActionEvent) -> None
                 print(f"ERROR: Fallback reaction removal also failed: {e2}")
         return
 
-    # Convert emoji to rating and save
+    # Convert emoji to rating value and save to database
     rating_value = emoji_to_rating(emoji_str)
     print(f"DEBUG: Converted emoji '{emoji_str}' to rating value: {rating_value}")
 
     if rating_value is not None:
         print(f"DEBUG: Saving rating {rating_value} for user {payload.user_id}")
+        # Use upsert to handle both insert and update cases
         success = add_or_update_rating(
             payload.user_id,
             movie_data["imdb_id"],
@@ -411,6 +471,17 @@ async def on_raw_reaction_remove(payload: discord.RawReactionActionEvent):
 
 
 async def _process_reaction_remove(payload: discord.RawReactionActionEvent) -> None:
+    """
+    Process reaction removals for movie rating functionality.
+
+    Handles rating removal when users remove their reactions:
+    1. Validates the reaction was user-initiated (not bot-initiated)
+    2. Removes the rating from database
+    3. Updates movie embed with new statistics
+
+    Args:
+        payload (discord.RawReactionActionEvent): The raw reaction removal event payload
+    """
     print(f"DEBUG: Raw reaction removed by user {payload.user_id} from message {payload.message_id}")
 
     # Ignore bot's own reactions
@@ -469,7 +540,16 @@ async def _process_reaction_remove(payload: discord.RawReactionActionEvent) -> N
 
 
 async def update_movie_embed(message: discord.Message, imdb_id: str):
-    """Update the movie embed with current rating statistics."""
+    """
+    Update the movie embed with current rating statistics.
+
+    Retrieves the latest rating statistics from cache/database and updates
+    the "Community Rating" field in the Discord embed.
+
+    Args:
+        message (discord.Message): The Discord message containing the movie embed
+        imdb_id (str): The IMDB ID of the movie to update ratings for
+    """
     try:
         # Get current rating stats with caching
         rating_stats = await get_movie_rating_stats_cached(imdb_id, message.channel.id, message.guild.id)
@@ -635,7 +715,15 @@ async def test_performance(ctx: commands.Context) -> None:
 
 
 async def run_bot():
-    """Run the Discord bot"""
+    """
+    Start and run the Discord bot.
+
+    Initializes the bot connection to Discord using the configured token.
+    This function handles the bot's main event loop and connection management.
+
+    Raises:
+        Exception: If bot fails to start or encounters a critical error
+    """
     try:
         log = get_logger("bot")
         log.info("Starting Discord bot")

@@ -73,19 +73,35 @@ The bot automatically validates database schema on startup. If required tables a
 
 ### Local Development
 
-1. Clone the repository
-2. Install dependencies:
+1. **Clone the repository**
    ```bash
-   pdm install
+   git clone https://github.com/your-username/python-imdb-bot.git
+   cd python-imdb-bot
    ```
 
-3. Copy `.env` from `example.env` and fill in your API keys
-
-4. Apply database migrations (see above)
-
-5. Run the bot:
+2. **Install dependencies using uv**
    ```bash
-   pdm run dev
+   # Install uv (if not already installed)
+   pip install uv
+
+   # Install project dependencies
+   uv sync
+   ```
+
+3. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your API keys and configuration
+   ```
+
+4. **Apply database migrations**
+   ```bash
+   npx supabase db push
+   ```
+
+5. **Run the bot**
+   ```bash
+   uv run python main.py
    ```
 
 ### Docker Deployment
@@ -142,14 +158,22 @@ cp example.env .env
 
 ## Environment Variables
 
-- `SUPABASE_URL`: Your Supabase project URL
-- `SUPABASE_KEY`: Your Supabase anon/public key
-- `DISCORD_TOKEN`: Discord bot token
-- `OMDB_API_KEY`: OMDB API key
-- `CHANNEL_ID`: Default Discord channel ID (can be overridden per guild)
+The bot requires the following environment variables:
 
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DISCORD_TOKEN` | ✅ | Discord bot token from Developer Portal |
+| `SUPABASE_URL` | ✅ | Supabase project URL |
+| `SUPABASE_KEY` | ✅ | Supabase anon/public key |
+| `OMDB_API_KEY` | ❌ | OMDB API key for movie data |
+| `TMDB_API_KEY` | ❌ | TMDB API key for trailers |
+| `CHANNEL_ID` | ❌ | Default Discord channel ID |
+| `LOG_LEVEL` | ❌ | Logging level (INFO, DEBUG, etc.) |
+| `SENTRY_DSN` | ❌ | Sentry DSN for error monitoring |
 
+### Example .env file
 
+```bash
 # Discord Bot Configuration
 DISCORD_TOKEN=your_discord_bot_token_here
 
@@ -164,3 +188,64 @@ TMDB_API_KEY=your_tmdb_api_key_here
 # Bot Configuration
 CHANNEL_ID=your_default_channel_id_here
 LOG_LEVEL=INFO
+
+# Optional: Error monitoring
+SENTRY_DSN=your_sentry_dsn_here
+```
+
+## Usage
+
+1. **Invite the bot** to your Discord server with the required permissions
+2. **Set a channel** for movie discussions using `/setchannel`
+3. **Post IMDB links** and the bot will automatically respond with movie details
+4. **Rate movies** using emoji reactions (1️⃣-9️⃣, 🔟 for 10)
+
+### Bot Commands
+
+- `/setchannel` - Configure the channel for movie detection
+- `/ping` - Check bot latency
+- `/echo` - Echo a message (for testing)
+
+### Rating System
+
+Users can rate movies by reacting with number emojis:
+- 1️⃣ = 1 star
+- 2️⃣ = 2 stars
+- ...
+- 9️⃣ = 9 stars
+- 🔟 = 10 stars
+
+Each user can only rate each movie once, and ratings update the community average in real-time.
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed information on:
+
+- Setting up a development environment
+- Code style and standards
+- Testing guidelines
+- Submitting pull requests
+- Issue reporting
+
+## Documentation
+
+- [API Reference](API.md) - Health check endpoints documentation
+- [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
+- [Coolify Optimization](COOLIFY_OPTIMIZATION_GUIDE.md) - Coolify-specific deployment guide
+- [Rating System Integration](RATING_SYSTEM_INTEGRATION.md) - Technical details of the rating system
+- [Troubleshooting](TROUBLESHOOTING.md) - Common issues and solutions
+- [Changelog](CHANGELOG.md) - Version history and changes
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+- 📖 [Documentation](README.md)
+- 🐛 [Issue Tracker](https://github.com/your-repo/python-imdb-bot/issues)
+- 💬 [Discussions](https://github.com/your-repo/python-imdb-bot/discussions)
+
+---
+
+Built with ❤️ using Discord.py, Supabase, and modern Python practices.
